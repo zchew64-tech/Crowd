@@ -66,7 +66,7 @@ export default function Home() {
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-black px-8 py-8 text-white">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,#1e3a8a_0%,#09090b_45%,#000_100%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,#3b0764_0%,#09090b_45%,#000_100%)]" />
 
       <MapBackground />
 
@@ -75,7 +75,7 @@ export default function Home() {
 
         <Hero onExplore={scrollToResults} />
 
-        <StatsBar />
+        <StatsBar spots={spotList} />
 
         <SearchBar search={search} setSearch={setSearch} />
 

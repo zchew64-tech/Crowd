@@ -1,8 +1,26 @@
-export default function StatsBar() {
+import type { Spot } from "../types/spot";
+
+type StatsBarProps = {
+  spots: Spot[];
+};
+
+export default function StatsBar({ spots }: StatsBarProps) {
+  const availableCount = spots.filter(
+    (spot) => spot.seatAvailability > 50
+  ).length;
+
   return (
     <section className="mb-10 grid gap-4 md:grid-cols-3">
-      <StatCard label="Study spots tracked" value="12" detail="Cafes & lounges near UCR" />
-      <StatCard label="Available now" value="7" detail="Low to moderate crowd levels" />
+      <StatCard
+        label="Study spots tracked"
+        value={String(spots.length)}
+        detail="Cafes & lounges near UCR"
+      />
+      <StatCard
+        label="Available now"
+        value={String(availableCount)}
+        detail="Low to moderate crowd levels"
+      />
       <StatCard label="Last updated" value="30s" detail="Community-powered reports" />
     </section>
   );

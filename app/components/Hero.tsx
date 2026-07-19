@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 type HeroProps = {
   onExplore: () => void;
 };
@@ -36,9 +38,12 @@ export default function Hero({ onExplore }: HeroProps) {
             Explore Nearby Spots
           </button>
 
-          <button className="rounded-2xl border border-white/10 bg-white/5 px-7 py-4 font-semibold text-zinc-300 backdrop-blur transition duration-300 hover:bg-white/10">
+          <Link
+            href="/how-it-works"
+            className="rounded-2xl border border-white/10 bg-white/5 px-7 py-4 font-semibold text-zinc-300 backdrop-blur transition duration-300 hover:bg-white/10"
+          >
             How It Works
-          </button>
+          </Link>
         </div>
       </div>
     </section>
