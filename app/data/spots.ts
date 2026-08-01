@@ -1,6 +1,6 @@
-import { Spot } from "../types/spot";
+import { SeedSpot } from "../types/spot";
 
-export const spots: Spot[] = [
+export const spots: SeedSpot[] = [
   {
     id: "coffee-bean-ucr",
     name: "The Coffee Bean & Tea Leaf",
@@ -12,7 +12,6 @@ export const spots: Spot[] = [
     noise: "Moderate",
     wifi: "Good",
     outlets: "Some",
-    updated: "3 min ago",
   },
   {
     id: "starbucks-university",
@@ -25,7 +24,6 @@ export const spots: Spot[] = [
     noise: "Loud",
     wifi: "Fast",
     outlets: "Limited",
-    updated: "6 min ago",
   },
   {
     id: "ucr-student-lounge",
@@ -38,7 +36,6 @@ export const spots: Spot[] = [
     noise: "Quiet",
     wifi: "Fast",
     outlets: "Plenty",
-    updated: "2 min ago",
   },
   {
     id: "7-leaves-riverside",
@@ -51,7 +48,6 @@ export const spots: Spot[] = [
     noise: "Moderate",
     wifi: "Good",
     outlets: "Some",
-    updated: "5 min ago",
   },
   {
     id: "lift-coffee-riverside",
@@ -64,7 +60,6 @@ export const spots: Spot[] = [
     noise: "Moderate",
     wifi: "Good",
     outlets: "Some",
-    updated: "8 min ago",
   },
   {
     id: "orbach-library",
@@ -77,6 +72,5 @@ export const spots: Spot[] = [
     noise: "Quiet",
     wifi: "Fast",
     outlets: "Plenty",
-    updated: "4 min ago",
   },
 ];

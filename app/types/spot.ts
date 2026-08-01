@@ -1,3 +1,5 @@
+import type { Timestamp } from "firebase/firestore";
+
 export type Spot = {
   id: string;
   name: string;
@@ -9,5 +11,9 @@ export type Spot = {
   noise: string;
   wifi: string;
   outlets: string;
-  updated: string;
+  reportCount: number;
+  reportSum: number;
+  lastUpdatedAt: Timestamp | null;
 };
+
+export type SeedSpot = Omit<Spot, "reportCount" | "reportSum" | "lastUpdatedAt">;

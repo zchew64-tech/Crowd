@@ -17,6 +17,8 @@ type SpotCardProps = {
   wifi: string;
   outlets: string;
   updated: string;
+  reportCount: number;
+  isStale: boolean;
   onReport: () => void;
 };
 
@@ -54,6 +56,8 @@ export default function SpotCard({
   wifi,
   outlets,
   updated,
+  reportCount,
+  isStale,
   onReport,
 }: SpotCardProps) {
   const availabilityColor = getAvailabilityColor(seatAvailability);
@@ -82,30 +86,47 @@ export default function SpotCard({
         <div>
           <p className="text-sm text-zinc-400">Seat availability</p>
 
-          <div className="mt-2 flex items-end gap-3">
-            <p
-              className={`text-5xl font-black tracking-tight ${availabilityColor.text}`}
-            >
-              {seatAvailability}%
-            </p>
+          {isStale ? (
+            <div className="mt-2">
+              <p className="text-2xl font-bold text-zinc-500">
+                No recent reports
+              </p>
+              <p className="mt-1 text-sm text-zinc-600">
+                Last known: {seatAvailability}% ({availabilityText})
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="mt-2 flex items-end gap-3">
+                <p
+                  className={`text-5xl font-black tracking-tight ${availabilityColor.text}`}
+                >
+                  {seatAvailability}%
+                </p>
 
-            <p className="pb-2 text-sm text-zinc-300">
-              {availabilityText}
-            </p>
-          </div>
+                <p className="pb-2 text-sm text-zinc-300">
+                  {availabilityText}
+                </p>
+              </div>
 
-          <div className="mt-5 h-3 overflow-hidden rounded-full bg-white/10">
-            <div
-              className={`h-full rounded-full bg-gradient-to-r ${availabilityColor.bar} shadow-lg ${availabilityColor.glow} transition-all duration-700`}
-              style={{ width: `${seatAvailability}%` }}
-            />
-          </div>
+              <div className="mt-5 h-3 overflow-hidden rounded-full bg-white/10">
+                <div
+                  className={`h-full rounded-full bg-gradient-to-r ${availabilityColor.bar} shadow-lg ${availabilityColor.glow} transition-all duration-700`}
+                  style={{ width: `${seatAvailability}%` }}
+                />
+              </div>
 
-          <div className="mt-2 flex justify-between text-xs text-zinc-500">
-            <span>Limited</span>
-            <span>Some seats</span>
-            <span>Plenty</span>
-          </div>
+              <div className="mt-2 flex justify-between text-xs text-zinc-500">
+                <span>Limited</span>
+                <span>Some seats</span>
+                <span>Plenty</span>
+              </div>
+
+              <p className="mt-3 text-xs text-zinc-500">
+                Based on {reportCount} {reportCount === 1 ? "report" : "reports"}
+              </p>
+            </>
+          )}
         </div>
 
         <div className="grid grid-cols-3 gap-3">
