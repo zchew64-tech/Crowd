@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
   doc,
@@ -20,6 +20,7 @@ import MapBackground from "./components/MapBackground";
 import Navbar from "./components/Navbar";
 import ReportModal from "./components/ReportModal";
 import SearchBar from "./components/SearchBar";
+import SortMenu from "./components/SortMenu";
 import SpotCard from "./components/SpotCard";
 import SpotCardSkeleton from "./components/SpotCardSkeleton";
 import StatsBar from "./components/StatsBar";
@@ -27,6 +28,8 @@ import Toast from "./components/Toast";
 import { spots as initialSpots } from "./data/spots";
 
 const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+type SortOption = "nearest" | "mostAvailable" | "leastAvailable";
 
 function getAvailabilityText(availability: number) {
   if (availability >= 80) {
@@ -68,6 +71,11 @@ function isSpotStale(timestamp: Timestamp | null, currentTime: number) {
   return currentTime - timestamp.toMillis() > STALE_THRESHOLD_MS;
 }
 
+function parseDistance(distance: string) {
+  // "0.6 mi" -> 0.6
+  return parseFloat(distance) || 0;
+}
+
 export default function Home() {
   const [search, setSearch] = useState("");
   const [spotList, setSpotList] = useState<Spot[]>([]);
@@ -75,6 +83,7 @@ export default function Home() {
   const [now, setNow] = useState(() => Date.now());
   const [isLoading, setIsLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<SortOption>("nearest");
 
   const resultsRef = useRef<HTMLDivElement | null>(null);
 
@@ -132,6 +141,26 @@ export default function Home() {
   const filteredSpots = spotList.filter((spot) =>
     spot.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  const sortedSpots = useMemo(() => {
+    const spotsCopy = [...filteredSpots];
+
+    switch (sortBy) {
+      case "mostAvailable":
+        return spotsCopy.sort(
+          (a, b) => b.seatAvailability - a.seatAvailability
+        );
+      case "leastAvailable":
+        return spotsCopy.sort(
+          (a, b) => a.seatAvailability - b.seatAvailability
+        );
+      case "nearest":
+      default:
+        return spotsCopy.sort(
+          (a, b) => parseDistance(a.distance) - parseDistance(b.distance)
+        );
+    }
+  }, [filteredSpots, sortBy]);
 
   function scrollToResults() {
     resultsRef.current?.scrollIntoView({
@@ -191,9 +220,7 @@ export default function Home() {
               Open Seats Nearby
             </h2>
 
-            <button className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-300 backdrop-blur transition hover:bg-white/10">
-              Sort by: Nearest
-            </button>
+            <SortMenu sortBy={sortBy} setSortBy={setSortBy} />
           </div>
 
           {isLoading ? (
@@ -205,7 +232,7 @@ export default function Home() {
           ) : (
             <>
               <div className="space-y-4">
-                {filteredSpots.map((spot) => (
+                {sortedSpots.map((spot) => (
                   <SpotCard
                     key={spot.id}
                     {...spot}
@@ -216,7 +243,7 @@ export default function Home() {
                 ))}
               </div>
 
-              {filteredSpots.length === 0 && (
+              {sortedSpots.length === 0 && (
                 <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.06] p-8 text-zinc-300 backdrop-blur">
                   No spots found. Try searching for another cafe or lounge.
                 </div>
