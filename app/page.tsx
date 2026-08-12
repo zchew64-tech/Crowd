@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  addDoc,
   collection,
   doc,
   getDocs,
@@ -11,8 +12,13 @@ import {
   writeBatch,
   type Timestamp,
 } from "firebase/firestore";
+import {
+  getDownloadURL,
+  ref,
+  uploadBytes,
+} from "firebase/storage";
 
-import { db } from "@/lib/firebase";
+import { db, storage } from "@/lib/firebase";
 import type { Spot } from "./types/spot";
 import Footer from "./components/Footer";
 import Hero from "./components/Hero";
@@ -74,6 +80,22 @@ function isSpotStale(timestamp: Timestamp | null, currentTime: number) {
 function parseDistance(distance: string) {
   // "0.6 mi" -> 0.6
   return parseFloat(distance) || 0;
+}
+
+async function uploadReportPhoto(spotId: string, file: File) {
+  const safeFileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "")}`;
+  const storagePath = `reports/${spotId}/${safeFileName}`;
+  const storageRef = ref(storage, storagePath);
+
+  await uploadBytes(storageRef, file);
+  const storageUrl = await getDownloadURL(storageRef);
+
+  await addDoc(collection(db, "photos"), {
+    spotId,
+    storageUrl,
+    storagePath,
+    uploadedAt: serverTimestamp(),
+  });
 }
 
 export default function Home() {
@@ -169,7 +191,10 @@ export default function Home() {
     });
   }
 
-  async function handleAvailabilityReport(availability: number) {
+  async function handleAvailabilityReport(
+    availability: number,
+    photo: File | null
+  ) {
     if (!selectedSpot) return;
 
     const targetSpot = spotList.find((spot) => spot.name === selectedSpot);
@@ -194,6 +219,19 @@ export default function Home() {
         lastUpdatedAt: serverTimestamp(),
       });
     });
+
+    if (photo) {
+      try {
+        await uploadReportPhoto(targetSpot.id, photo);
+      } catch (error) {
+        console.error("Photo upload failed:", error);
+        setToastMessage(
+          `Thanks — ${targetSpot.name} updated! (Photo upload failed)`
+        );
+        setSelectedSpot(null);
+        return;
+      }
+    }
 
     setToastMessage(`Thanks — ${targetSpot.name} updated!`);
     setSelectedSpot(null);
