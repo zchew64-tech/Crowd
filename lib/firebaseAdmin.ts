@@ -2,7 +2,9 @@ import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 
-const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, "\n");
+const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY_B64
+  ? Buffer.from(process.env.FIREBASE_ADMIN_PRIVATE_KEY_B64, "base64").toString("utf8")
+  : undefined;
 
 const adminApp = getApps().length
   ? getApps()[0]
