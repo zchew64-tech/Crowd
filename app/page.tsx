@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  addDoc,
   collection,
   doc,
   getDocs,
@@ -11,8 +12,13 @@ import {
   writeBatch,
   type Timestamp,
 } from "firebase/firestore";
+import {
+  getDownloadURL,
+  ref,
+  uploadBytes,
+} from "firebase/storage";
 
-import { db } from "@/lib/firebase";
+import { db, storage } from "@/lib/firebase";
 import type { Spot } from "./types/spot";
 import Footer from "./components/Footer";
 import Hero from "./components/Hero";
@@ -20,6 +26,7 @@ import MapBackground from "./components/MapBackground";
 import Navbar from "./components/Navbar";
 import ReportModal from "./components/ReportModal";
 import SearchBar from "./components/SearchBar";
+import SortMenu from "./components/SortMenu";
 import SpotCard from "./components/SpotCard";
 import SpotCardSkeleton from "./components/SpotCardSkeleton";
 import StatsBar from "./components/StatsBar";
@@ -27,6 +34,8 @@ import Toast from "./components/Toast";
 import { spots as initialSpots } from "./data/spots";
 
 const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+type SortOption = "nearest" | "mostAvailable" | "leastAvailable";
 
 function getAvailabilityText(availability: number) {
   if (availability >= 80) {
@@ -68,6 +77,27 @@ function isSpotStale(timestamp: Timestamp | null, currentTime: number) {
   return currentTime - timestamp.toMillis() > STALE_THRESHOLD_MS;
 }
 
+function parseDistance(distance: string) {
+  // "0.6 mi" -> 0.6
+  return parseFloat(distance) || 0;
+}
+
+async function uploadReportPhoto(spotId: string, file: File) {
+  const safeFileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "")}`;
+  const storagePath = `reports/${spotId}/${safeFileName}`;
+  const storageRef = ref(storage, storagePath);
+
+  await uploadBytes(storageRef, file);
+  const storageUrl = await getDownloadURL(storageRef);
+
+  await addDoc(collection(db, "photos"), {
+    spotId,
+    storageUrl,
+    storagePath,
+    uploadedAt: serverTimestamp(),
+  });
+}
+
 export default function Home() {
   const [search, setSearch] = useState("");
   const [spotList, setSpotList] = useState<Spot[]>([]);
@@ -75,6 +105,7 @@ export default function Home() {
   const [now, setNow] = useState(() => Date.now());
   const [isLoading, setIsLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<SortOption>("nearest");
 
   const resultsRef = useRef<HTMLDivElement | null>(null);
 
@@ -133,6 +164,26 @@ export default function Home() {
     spot.name.toLowerCase().includes(search.toLowerCase())
   );
 
+  const sortedSpots = useMemo(() => {
+    const spotsCopy = [...filteredSpots];
+
+    switch (sortBy) {
+      case "mostAvailable":
+        return spotsCopy.sort(
+          (a, b) => b.seatAvailability - a.seatAvailability
+        );
+      case "leastAvailable":
+        return spotsCopy.sort(
+          (a, b) => a.seatAvailability - b.seatAvailability
+        );
+      case "nearest":
+      default:
+        return spotsCopy.sort(
+          (a, b) => parseDistance(a.distance) - parseDistance(b.distance)
+        );
+    }
+  }, [filteredSpots, sortBy]);
+
   function scrollToResults() {
     resultsRef.current?.scrollIntoView({
       behavior: "smooth",
@@ -140,7 +191,10 @@ export default function Home() {
     });
   }
 
-  async function handleAvailabilityReport(availability: number) {
+  async function handleAvailabilityReport(
+    availability: number,
+    photo: File | null
+  ) {
     if (!selectedSpot) return;
 
     const targetSpot = spotList.find((spot) => spot.name === selectedSpot);
@@ -165,6 +219,19 @@ export default function Home() {
         lastUpdatedAt: serverTimestamp(),
       });
     });
+
+    if (photo) {
+      try {
+        await uploadReportPhoto(targetSpot.id, photo);
+      } catch (error) {
+        console.error("Photo upload failed:", error);
+        setToastMessage(
+          `Thanks — ${targetSpot.name} updated! (Photo upload failed)`
+        );
+        setSelectedSpot(null);
+        return;
+      }
+    }
 
     setToastMessage(`Thanks — ${targetSpot.name} updated!`);
     setSelectedSpot(null);
@@ -191,9 +258,7 @@ export default function Home() {
               Open Seats Nearby
             </h2>
 
-            <button className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-300 backdrop-blur transition hover:bg-white/10">
-              Sort by: Nearest
-            </button>
+            <SortMenu sortBy={sortBy} setSortBy={setSortBy} />
           </div>
 
           {isLoading ? (
@@ -205,7 +270,7 @@ export default function Home() {
           ) : (
             <>
               <div className="space-y-4">
-                {filteredSpots.map((spot) => (
+                {sortedSpots.map((spot) => (
                   <SpotCard
                     key={spot.id}
                     {...spot}
@@ -216,7 +281,7 @@ export default function Home() {
                 ))}
               </div>
 
-              {filteredSpots.length === 0 && (
+              {sortedSpots.length === 0 && (
                 <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.06] p-8 text-zinc-300 backdrop-blur">
                   No spots found. Try searching for another cafe or lounge.
                 </div>
