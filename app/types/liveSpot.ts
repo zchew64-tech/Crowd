@@ -11,4 +11,5 @@ export type LiveSpot = {
   outlets: string;
   updated: string;
   updatedAt?: number;
+  isStale?: boolean;
 };

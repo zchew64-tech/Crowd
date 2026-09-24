@@ -2,14 +2,13 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
-import { getLabel, getTier, timeAgo } from "../lib/availability";
+import { getLabel, getTier } from "../lib/availability";
 import type { LiveSpot as Spot } from "../types/liveSpot";
 import { useReveal } from "./Reveal";
 
 type SpotCardProps = {
   spot: Spot;
   index: number;
-  now: number;
   saved: boolean;
   flash: number;
   onReport: () => void;
@@ -57,7 +56,6 @@ function useCountUp(value: number, active: boolean) {
 export default function SpotCard({
   spot,
   index,
-  now,
   saved,
   flash,
   onReport,
@@ -79,10 +77,6 @@ export default function SpotCard({
     return () => clearTimeout(timer);
   }, [flash]);
 
-  const updatedText = spot.updatedAt
-    ? timeAgo(now - spot.updatedAt)
-    : spot.updated;
-
   return (
     <article
       ref={ref}
@@ -99,7 +93,7 @@ export default function SpotCard({
         </div>
       </div>
 
-      <div>
+      <div style={spot.isStale ? { opacity: 0.5 } : undefined}>
         <div className="pct">
           <span>{displayed}</span>%<small>{getLabel(percent)}</small>
         </div>
@@ -128,7 +122,10 @@ export default function SpotCard({
       </div>
 
       <div className="act">
-        <span className="upd">Updated {updatedText}</span>
+        <span className="upd">
+          Updated {spot.updated}
+          {spot.isStale ? " · may be outdated" : ""}
+        </span>
 
         <div className="ab">
           <button

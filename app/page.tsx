@@ -1,7 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  collection,
+  doc,
+  getDocs,
+  onSnapshot,
+  runTransaction,
+  serverTimestamp,
+  writeBatch,
+  type Timestamp,
+} from "firebase/firestore";
 
+import { db } from "@/lib/firebase";
 import CampusMap from "./components/CampusMap";
 import Hero from "./components/Hero";
 import Navbar from "./components/Navbar";
@@ -26,32 +37,45 @@ import {
   getLabel,
   getReportText,
 } from "./lib/availability";
-import type { LiveSpot as Spot } from "./types/liveSpot";
+import type { LiveSpot } from "./types/liveSpot";
+import type { Spot } from "./types/spot";
+
+const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+function formatRelativeTime(timestamp: Timestamp | null, currentTime: number) {
+  if (!timestamp) return "just now";
+
+  const diffMs = currentTime - timestamp.toMillis();
+  const diffMinutes = Math.floor(diffMs / 60000);
+
+  if (diffMinutes < 1) return "just now";
+  if (diffMinutes === 1) return "1 min ago";
+  if (diffMinutes < 60) return `${diffMinutes} min ago`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours === 1) return "1 hr ago";
+  if (diffHours < 24) return `${diffHours} hr ago`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return "1 day ago";
+  return `${diffDays} days ago`;
+}
+
+function isSpotStale(timestamp: Timestamp | null, currentTime: number) {
+  if (!timestamp) return false;
+  return currentTime - timestamp.toMillis() > STALE_THRESHOLD_MS;
+}
 
 export default function Home() {
-  const [spotList, setSpotList] = useState<Spot[]>(() =>
-    initialSpots.map((spot, index) => ({
-      id: spot.id,
-      name: spot.name,
-      type: spot.type,
-      address: spot.address,
-      distance: spot.distance,
-      seatAvailability: spot.seatAvailability,
-      availabilityText: getAvailabilityText(spot.seatAvailability),
-      noise: spot.noise,
-      wifi: spot.wifi,
-      outlets: spot.outlets,
-      updated: `${[3, 6, 2, 5, 8, 4][index % 6]} min ago`,
-    }))
-  );
-  const [loading, setLoading] = useState(true);
+  const [rawSpots, setRawSpots] = useState<Spot[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [sortBy, setSortBy] = useState<SortOption>("nearest");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [hoverId, setHoverId] = useState<string | null>(null);
-  const [now, setNow] = useState(0);
   const [flashes, setFlashes] = useState<Record<string, number>>({});
   const [feed, setFeed] = useState<FeedItem>({
     id: 0,
@@ -64,10 +88,35 @@ export default function Home() {
     showLink: false,
   });
 
-  const listRef = useRef(spotList);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promoShown = useRef(false);
   const dismissed = useRef(false);
+  const ready = useRef(false);
+  const previous = useRef(new Map<string, { sum: number; count: number }>());
+  const selfReports = useRef(new Set<string>());
+
+  /* ---------- spots as the design components expect them ---------- */
+
+  const spotList: LiveSpot[] = useMemo(
+    () =>
+      rawSpots.map((spot) => ({
+        id: spot.id,
+        name: spot.name,
+        type: spot.type,
+        address: spot.address,
+        distance: spot.distance,
+        seatAvailability: spot.seatAvailability,
+        availabilityText: spot.availabilityText,
+        noise: spot.noise,
+        wifi: spot.wifi,
+        outlets: spot.outlets,
+        updated: formatRelativeTime(spot.lastUpdatedAt, now),
+        isStale: isSpotStale(spot.lastUpdatedAt, now),
+      })),
+    [rawSpots, now]
+  );
+
+  const listRef = useRef(spotList);
 
   useEffect(() => {
     listRef.current = spotList;
@@ -90,82 +139,88 @@ export default function Home() {
     setToast((current) => ({ ...current, open: false }));
   }, []);
 
-  /* ---------- live updates ---------- */
-
   const flash = useCallback((id: string) => {
     setFlashes((current) => ({ ...current, [id]: (current[id] ?? 0) + 1 }));
   }, []);
 
-  const pushReport = useCallback(
-    (id: string, value: number, who: string) => {
-      const spot = listRef.current.find((item) => item.id === id);
-      if (!spot) return;
+  /* ---------- live data from Firestore ---------- */
 
-      const timestamp = Date.now();
+  useEffect(() => {
+    const spotsRef = collection(db, "spots");
 
-      setSpotList((current) =>
-        current.map((item) =>
-          item.id === id
-            ? {
-                ...item,
-                seatAvailability: value,
-                availabilityText: getAvailabilityText(value),
-                updated: "just now",
-                updatedAt: timestamp,
-              }
-            : item
-        )
+    async function seedIfEmpty() {
+      const snapshot = await getDocs(spotsRef);
+
+      if (snapshot.empty) {
+        const batch = writeBatch(db);
+
+        initialSpots.forEach((spot) => {
+          batch.set(doc(db, "spots", spot.id), {
+            ...spot,
+            reportCount: 1,
+            reportSum: spot.seatAvailability,
+            lastUpdatedAt: serverTimestamp(),
+          });
+        });
+
+        await batch.commit();
+      }
+    }
+
+    seedIfEmpty();
+
+    const unsubscribe = onSnapshot(spotsRef, (snapshot) => {
+      const liveSpots = snapshot.docs.map(
+        (docSnap) => docSnap.data() as Spot
       );
 
-      setNow(timestamp);
-      flash(id);
-      setFeed((current) => ({
-        id: current.id + 1,
-        when: "Just now",
-        text: `${who} reported ${getReportText(value)} at ${spot.name}`,
-      }));
-    },
-    [flash]
-  );
+      // After the first load, every new report shows up in the live feed.
+      if (ready.current) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type !== "modified") return;
 
-  // First load: stamp update times, show the skeleton briefly, tick the clock.
-  useEffect(() => {
-    const start = Date.now();
-    setNow(start);
-    setSpotList((current) =>
-      current.map((spot) => ({
-        ...spot,
-        updatedAt: start - parseInt(spot.updated, 10) * 60000,
-      }))
-    );
+          const data = change.doc.data() as Spot;
+          const before = previous.current.get(data.id);
+          if (!before || data.reportCount <= before.count) return;
 
-    const loadTimer = setTimeout(() => setLoading(false), 1100);
-    const clock = setInterval(() => setNow(Date.now()), 10000);
+          const reported = Math.round(
+            (data.reportSum - before.sum) / (data.reportCount - before.count)
+          );
+          const mine = selfReports.current.delete(data.id);
 
-    return () => {
-      clearTimeout(loadTimer);
-      clearInterval(clock);
-    };
-  }, []);
-
-  // Simulated reports from other students. Replace with Firestore listeners later.
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const current = listRef.current;
-      const spot = current[Math.floor(Math.random() * current.length)];
-
-      let next =
-        spot.seatAvailability + Math.round((Math.random() - 0.5) * 28);
-      next = Math.max(4, Math.min(98, next));
-      if (next === spot.seatAvailability) {
-        next += next > 50 ? -3 : 3;
+          flash(data.id);
+          setFeed((current) => ({
+            id: current.id + 1,
+            when: "Just now",
+            text: `${mine ? "You" : "A student"} reported ${getReportText(
+              reported
+            )} at ${data.name}`,
+          }));
+        });
       }
 
-      pushReport(spot.id, next, "A student");
-    }, 4500);
+      previous.current = new Map(
+        liveSpots.map((spot) => [
+          spot.id,
+          { sum: spot.reportSum, count: spot.reportCount },
+        ])
+      );
 
-    return () => clearInterval(timer);
-  }, [pushReport]);
+      setRawSpots(liveSpots);
+
+      if (liveSpots.length > 0) {
+        ready.current = true;
+        setIsLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [flash]);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Pop-up card after the visitor scrolls past most of the first screen.
   useEffect(() => {
@@ -173,13 +228,12 @@ export default function Home() {
       if (promoShown.current || dismissed.current) return;
 
       if (window.scrollY > window.innerHeight * 0.7) {
-        promoShown.current = true;
-
         const best = [...listRef.current].sort(
           (a, b) => b.seatAvailability - a.seatAvailability
         )[0];
 
         if (best) {
+          promoShown.current = true;
           say(
             `${best.seatAvailability}% of seats are open at ${best.name} right now.`,
             true
@@ -229,22 +283,44 @@ export default function Home() {
 
   /* ---------- actions ---------- */
 
-  function handleReport(value: number) {
+  async function handleAvailabilityReport(availability: number) {
     if (!selectedId) return;
 
-    const spot = spotList.find((item) => item.id === selectedId);
-    pushReport(selectedId, value, "You");
+    const targetSpot = rawSpots.find((spot) => spot.id === selectedId);
+    if (!targetSpot) return;
 
-    if (spot) {
-      say(
-        `Thanks. ${spot.name} is now marked ${getLabel(value).toLowerCase()}.`
-      );
-    }
+    const spotRef = doc(db, "spots", targetSpot.id);
 
+    selfReports.current.add(targetSpot.id);
     setSelectedId(null);
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const snapshot = await transaction.get(spotRef);
+        if (!snapshot.exists()) return;
+
+        const current = snapshot.data() as Spot;
+        const newReportCount = current.reportCount + 1;
+        const newReportSum = current.reportSum + availability;
+        const newAverage = Math.round(newReportSum / newReportCount);
+
+        transaction.update(spotRef, {
+          reportCount: newReportCount,
+          reportSum: newReportSum,
+          seatAvailability: newAverage,
+          availabilityText: getAvailabilityText(newAverage),
+          lastUpdatedAt: serverTimestamp(),
+        });
+      });
+
+      say(`Thanks — ${targetSpot.name} updated!`);
+    } catch {
+      selfReports.current.delete(targetSpot.id);
+      say("Sorry, your report didn't go through. Please try again.");
+    }
   }
 
-  function toggleSave(spot: Spot) {
+  function toggleSave(spot: LiveSpot) {
     const alreadySaved = savedIds.has(spot.id);
 
     setSavedIds((current) => {
@@ -318,7 +394,7 @@ export default function Home() {
             <StatsBar total={spotList.length} plenty={plentyCount} />
 
             <div id="list">
-              {loading &&
+              {isLoading &&
                 Array.from({ length: 4 }).map((_, index) => (
                   <div key={index} className="row sk">
                     <div>
@@ -338,19 +414,18 @@ export default function Home() {
                   </div>
                 ))}
 
-              {!loading && visibleSpots.length === 0 && (
+              {!isLoading && visibleSpots.length === 0 && (
                 <p className="empty">
-                  No spots match. Try another search or filter.
+                  No spots found. Try searching for another cafe or lounge.
                 </p>
               )}
 
-              {!loading &&
+              {!isLoading &&
                 visibleSpots.map((spot, index) => (
                   <SpotCard
                     key={spot.id}
                     spot={spot}
                     index={index}
-                    now={now}
                     saved={savedIds.has(spot.id)}
                     flash={flashes[spot.id] ?? 0}
                     onReport={() => setSelectedId(spot.id)}
@@ -380,7 +455,7 @@ export default function Home() {
         spotName={selectedSpot?.name ?? ""}
         isOpen={selectedId !== null}
         onClose={() => setSelectedId(null)}
-        onSubmit={handleReport}
+        onSubmit={handleAvailabilityReport}
       />
     </>
   );
