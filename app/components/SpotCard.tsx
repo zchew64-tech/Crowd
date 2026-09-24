@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { getLabel, getTier, timeAgo } from "../lib/availability";
-import type { Spot } from "../types/spot";
+import type { LiveSpot as Spot } from "../types/liveSpot";
 import { useReveal } from "./Reveal";
 
 type SpotCardProps = {

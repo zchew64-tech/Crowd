@@ -2,7 +2,7 @@
 
 import Reveal from "./Reveal";
 import type { Filter } from "./SearchBar";
-import type { Spot } from "../types/spot";
+import type { LiveSpot as Spot } from "../types/liveSpot";
 
 /* ---------- live activity strip ---------- */
 

@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { getTier } from "../lib/availability";
-import type { Spot } from "../types/spot";
+import type { LiveSpot as Spot } from "../types/liveSpot";
 import Reveal from "./Reveal";
 
 const PIN_POSITIONS: Record<string, [number, number]> = {

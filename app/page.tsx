@@ -26,10 +26,24 @@ import {
   getLabel,
   getReportText,
 } from "./lib/availability";
-import type { Spot } from "./types/spot";
+import type { LiveSpot as Spot } from "./types/liveSpot";
 
 export default function Home() {
-  const [spotList, setSpotList] = useState<Spot[]>(initialSpots);
+  const [spotList, setSpotList] = useState<Spot[]>(() =>
+    initialSpots.map((spot, index) => ({
+      id: spot.id,
+      name: spot.name,
+      type: spot.type,
+      address: spot.address,
+      distance: spot.distance,
+      seatAvailability: spot.seatAvailability,
+      availabilityText: getAvailabilityText(spot.seatAvailability),
+      noise: spot.noise,
+      wifi: spot.wifi,
+      outlets: spot.outlets,
+      updated: `${[3, 6, 2, 5, 8, 4][index % 6]} min ago`,
+    }))
+  );
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
