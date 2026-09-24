@@ -1,50 +1,119 @@
-import Link from "next/link";
+"use client";
 
-type HeroProps = {
-  onExplore: () => void;
-};
+import { useEffect, useRef } from "react";
 
-export default function Hero({ onExplore }: HeroProps) {
+import Reveal from "./Reveal";
+
+export default function Hero() {
+  const hero = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    let ticking = false;
+
+    function update() {
+      const el = hero.current;
+      if (el && window.scrollY < el.offsetHeight) {
+        el.style.setProperty("--py", `${window.scrollY * 0.12}px`);
+      }
+      ticking = false;
+    }
+
+    function onScroll() {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(update);
+      }
+    }
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
-    <section className="relative mb-20 max-w-4xl">
-      <div className="absolute -left-20 top-10 h-72 w-72 rounded-full bg-purple-700/20 blur-[120px]" />
-      <div className="absolute left-80 top-24 h-60 w-60 rounded-full bg-violet-500/10 blur-[120px]" />
+    <section ref={hero} className="hero" aria-label="Featured">
+      <div className="stage" aria-hidden="true">
+        <div className="phone a">
+          <div className="screen">
+            <div className="s-top">CROWD</div>
 
-      <div className="relative">
-        <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-purple-400/20 bg-purple-500/10 px-4 py-2 text-sm text-purple-300 backdrop-blur">
-          <div className="h-2 w-2 rounded-full bg-green-400" />
-          Live availability reports
+            <div className="s-card">
+              <small>Lounge · 0.3 mi</small>
+              <b>UCR Student Lounge</b>
+              <div className="s-num">94%</div>
+              <div className="s-bar"><i style={{ width: "94%" }} /></div>
+            </div>
+
+            <div className="s-card">
+              <small>Library · 0.4 mi</small>
+              <b>Orbach Science Library</b>
+              <div className="s-num">76%</div>
+              <div className="s-bar"><i style={{ width: "76%" }} /></div>
+            </div>
+
+            <div className="s-card">
+              <small>Cafe · 0.9 mi</small>
+              <b>Starbucks University Ave</b>
+              <div className="s-num" style={{ color: "#777" }}>47%</div>
+              <div className="s-bar">
+                <i style={{ width: "47%", background: "#777" }} />
+              </div>
+            </div>
+          </div>
         </div>
 
-        <h1 className="text-7xl font-black leading-[0.95] tracking-tight">
-          Find an open seat
-          <br />
+        <div className="phone b">
+          <div className="screen">
+            <div className="s-top">Report availability</div>
+            <div className="s-h">7 Leaves Cafe</div>
+            <small style={{ color: "#777", fontSize: 12 }}>
+              What does seating look like right now?
+            </small>
 
-          <span className="bg-gradient-to-r from-white via-purple-200 to-purple-500 bg-clip-text text-transparent">
-            before you leave.
-          </span>
-        </h1>
-
-        <p className="mt-8 max-w-2xl text-xl leading-8 text-zinc-400">
-          Live seat availability for cafés and lounges around UCR, so you can
-          choose where to go before making the trip.
-        </p>
-
-        <div className="mt-10 flex gap-4">
-          <button
-            onClick={onExplore}
-            className="rounded-2xl bg-gradient-to-r from-purple-600 to-violet-700 px-7 py-4 font-semibold shadow-2xl shadow-purple-900/40 transition duration-300 hover:scale-105"
-          >
-            Explore Nearby Spots
-          </button>
-
-          <Link
-            href="/how-it-works"
-            className="rounded-2xl border border-white/10 bg-white/5 px-7 py-4 font-semibold text-zinc-300 backdrop-blur transition duration-300 hover:bg-white/10"
-          >
-            How It Works
-          </Link>
+            <div className="opt">
+              Plenty of seats<small>Many tables are open</small>
+            </div>
+            <div className="opt on">
+              Some seats<small>A few seats are still available</small>
+            </div>
+            <div className="opt">
+              Limited seating<small>One or two seats appear open</small>
+            </div>
+            <div className="opt">
+              No seats<small>The location appears full</small>
+            </div>
+          </div>
         </div>
+      </div>
+
+      <div className="copy">
+        <Reveal className="live">Live now near UCR</Reveal>
+
+        <Reveal tag="p" className="line" delay={120}>
+          <span>Cafés</span>
+          <span>Lounges</span>
+          <span>Libraries</span>
+        </Reveal>
+
+        <Reveal tag="p" className="sub" delay={240}>
+          See open seats before you go
+        </Reveal>
+
+        <Reveal className="cta" delay={340}>
+          <a className="link" href="#how">
+            How it works
+          </a>
+          <a className="pill" href="#spots">
+            Explore spots
+          </a>
+        </Reveal>
+      </div>
+
+      <div className="dots" aria-hidden="true">
+        <i className="on" />
+        <i />
+        <i />
       </div>
     </section>
   );

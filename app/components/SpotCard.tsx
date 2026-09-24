@@ -1,186 +1,150 @@
-import type { ReactNode } from "react";
+"use client";
 
-import {
-  ClockIcon,
-  NoiseIcon,
-  OutletIcon,
-  WifiIcon,
-} from "./Icons";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+
+import { getLabel, getTier, timeAgo } from "../lib/availability";
+import type { Spot } from "../types/spot";
+import { useReveal } from "./Reveal";
 
 type SpotCardProps = {
-  name: string;
-  type: string;
-  distance: string;
-  seatAvailability: number;
-  availabilityText: string;
-  noise: string;
-  wifi: string;
-  outlets: string;
-  updated: string;
-  reportCount: number;
-  isStale: boolean;
+  spot: Spot;
+  index: number;
+  now: number;
+  saved: boolean;
+  flash: number;
   onReport: () => void;
+  onSave: () => void;
+  onHover: (id: string | null) => void;
 };
 
-function getAvailabilityColor(seatAvailability: number) {
-  if (seatAvailability >= 75) {
-    return {
-      text: "text-emerald-400",
-      bar: "from-emerald-400 to-green-500",
-      glow: "shadow-emerald-500/20",
-    };
-  }
+function useCountUp(value: number, active: boolean) {
+  const [current, setCurrent] = useState(0);
+  const played = useRef(false);
 
-  if (seatAvailability >= 45) {
-    return {
-      text: "text-amber-300",
-      bar: "from-amber-300 to-orange-400",
-      glow: "shadow-amber-500/20",
-    };
-  }
+  useEffect(() => {
+    if (!active) return;
 
-  return {
-    text: "text-rose-400",
-    bar: "from-rose-400 to-red-500",
-    glow: "shadow-rose-500/20",
-  };
+    if (
+      played.current ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setCurrent(value);
+      played.current = true;
+      return;
+    }
+
+    let frame = 0;
+    const start = performance.now();
+
+    const step = (time: number) => {
+      const progress = Math.min(1, (time - start) / 900);
+      setCurrent(Math.round(value * (1 - Math.pow(1 - progress, 3))));
+
+      if (progress < 1) {
+        frame = requestAnimationFrame(step);
+      } else {
+        played.current = true;
+      }
+    };
+
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [value, active]);
+
+  return current;
 }
 
 export default function SpotCard({
-  name,
-  type,
-  distance,
-  seatAvailability,
-  availabilityText,
-  noise,
-  wifi,
-  outlets,
-  updated,
-  reportCount,
-  isStale,
+  spot,
+  index,
+  now,
+  saved,
+  flash,
   onReport,
+  onSave,
+  onHover,
 }: SpotCardProps) {
-  const availabilityColor = getAvailabilityColor(seatAvailability);
+  const [ref, shown] = useReveal<HTMLElement>();
+  const [flashing, setFlashing] = useState(false);
+
+  const percent = spot.seatAvailability;
+  const displayed = useCountUp(percent, shown);
+  const tier = getTier(percent);
+
+  useEffect(() => {
+    if (flash === 0) return;
+
+    setFlashing(true);
+    const timer = setTimeout(() => setFlashing(false), 1600);
+    return () => clearTimeout(timer);
+  }, [flash]);
+
+  const updatedText = spot.updatedAt
+    ? timeAgo(now - spot.updatedAt)
+    : spot.updated;
 
   return (
-    <article className="group rounded-[2rem] border border-white/10 bg-white/[0.055] p-6 shadow-2xl shadow-black/30 backdrop-blur-xl transition duration-300 hover:-translate-y-1 hover:border-purple-400/35 hover:bg-white/[0.075] hover:shadow-purple-950/40">
-      <div className="grid gap-7 lg:grid-cols-[1.1fr_1.25fr_1.2fr_.75fr]">
-        <div>
-          <div className="mb-4 flex items-center gap-2">
-            <span className="rounded-full border border-purple-400/20 bg-purple-500/10 px-3 py-1 text-xs font-medium text-purple-300">
-              {type}
-            </span>
+    <article
+      ref={ref}
+      id={`spot-${spot.id}`}
+      className={`row rv ${shown ? "in" : ""} ${flashing ? "fl" : ""}`}
+      style={{ "--d": `${index * 70}ms` } as CSSProperties}
+      onMouseEnter={() => onHover(spot.id)}
+      onMouseLeave={() => onHover(null)}
+    >
+      <div>
+        <h3>{spot.name}</h3>
+        <div className="meta">
+          {spot.type} · {spot.distance} away
+        </div>
+      </div>
 
-            <span className="text-sm text-zinc-500">{distance} away</span>
-          </div>
-
-          <h3 className="text-2xl font-bold tracking-tight text-white">
-            {name}
-          </h3>
-
-          <p className="mt-3 inline-flex rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
-            Open now
-          </p>
+      <div>
+        <div className="pct">
+          <span>{displayed}</span>%<small>{getLabel(percent)}</small>
         </div>
 
-        <div>
-          <p className="text-sm text-zinc-400">Seat availability</p>
-
-          {isStale ? (
-            <div className="mt-2">
-              <p className="text-2xl font-bold text-zinc-500">
-                No recent reports
-              </p>
-              <p className="mt-1 text-sm text-zinc-600">
-                Last known: {seatAvailability}% ({availabilityText})
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="mt-2 flex items-end gap-3">
-                <p
-                  className={`text-5xl font-black tracking-tight ${availabilityColor.text}`}
-                >
-                  {seatAvailability}%
-                </p>
-
-                <p className="pb-2 text-sm text-zinc-300">
-                  {availabilityText}
-                </p>
-              </div>
-
-              <div className="mt-5 h-3 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className={`h-full rounded-full bg-gradient-to-r ${availabilityColor.bar} shadow-lg ${availabilityColor.glow} transition-all duration-700`}
-                  style={{ width: `${seatAvailability}%` }}
-                />
-              </div>
-
-              <div className="mt-2 flex justify-between text-xs text-zinc-500">
-                <span>Limited</span>
-                <span>Some seats</span>
-                <span>Plenty</span>
-              </div>
-
-              <p className="mt-3 text-xs text-zinc-500">
-                Based on {reportCount} {reportCount === 1 ? "report" : "reports"}
-              </p>
-            </>
-          )}
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          <MetricCard
-            label="Noise"
-            value={noise}
-            icon={<NoiseIcon />}
-          />
-
-          <MetricCard
-            label="Wi-Fi"
-            value={wifi}
-            icon={<WifiIcon />}
-          />
-
-          <MetricCard
-            label="Outlets"
-            value={outlets}
-            icon={<OutletIcon />}
+        <div className="bar">
+          <i
+            className={tier}
+            style={{ "--w": `${percent}%` } as CSSProperties}
           />
         </div>
+      </div>
 
-        <div className="flex flex-col items-start justify-between lg:items-end">
-          <div className="flex items-center gap-2 text-sm text-zinc-500">
-            <ClockIcon className="h-4 w-4" />
-            <span>Updated {updated}</span>
-          </div>
+      <div className="chips">
+        <span>
+          <em>Noise</em>
+          {spot.noise}
+        </span>
+        <span>
+          <em>Wi-Fi</em>
+          {spot.wifi}
+        </span>
+        <span>
+          <em>Outlets</em>
+          {spot.outlets}
+        </span>
+      </div>
 
+      <div className="act">
+        <span className="upd">Updated {updatedText}</span>
+
+        <div className="ab">
           <button
-            onClick={onReport}
-            className="mt-6 rounded-2xl bg-gradient-to-r from-purple-600 to-violet-700 px-5 py-3 text-sm font-bold text-white shadow-xl shadow-purple-950/40 transition duration-300 hover:scale-105 hover:shadow-purple-800/40"
+            className="fav"
+            aria-pressed={saved}
+            aria-label={`Save ${spot.name}`}
+            onClick={onSave}
           >
-            Report availability
+            {saved ? "♥" : "♡"}
+          </button>
+
+          <button className="pill sm" onClick={onReport}>
+            Report
           </button>
         </div>
       </div>
     </article>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string;
-  icon: ReactNode;
-}) {
-  return (
-    <div className="flex min-h-28 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/[0.045] p-4 text-center transition duration-300 group-hover:border-purple-400/20 group-hover:bg-white/[0.07]">
-      <div className="text-zinc-300">{icon}</div>
-      <p className="mt-3 text-xs text-zinc-500">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
-    </div>
   );
 }

@@ -1,306 +1,373 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  addDoc,
-  collection,
-  doc,
-  getDocs,
-  onSnapshot,
-  runTransaction,
-  serverTimestamp,
-  writeBatch,
-  type Timestamp,
-} from "firebase/firestore";
-import {
-  getDownloadURL,
-  ref,
-  uploadBytes,
-} from "firebase/storage";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { db, storage } from "@/lib/firebase";
-import type { Spot } from "./types/spot";
-import Footer from "./components/Footer";
+import CampusMap from "./components/CampusMap";
 import Hero from "./components/Hero";
-import MapBackground from "./components/MapBackground";
 import Navbar from "./components/Navbar";
 import ReportModal from "./components/ReportModal";
-import SearchBar from "./components/SearchBar";
-import SortMenu from "./components/SortMenu";
+import Reveal from "./components/Reveal";
+import SearchBar, { type Filter } from "./components/SearchBar";
+import {
+  Categories,
+  CtaBand,
+  Footer,
+  HowItWorks,
+  LiveTicker,
+  Toast,
+  type FeedItem,
+} from "./components/Sections";
+import SortMenu, { type SortOption } from "./components/SortMenu";
 import SpotCard from "./components/SpotCard";
-import SpotCardSkeleton from "./components/SpotCardSkeleton";
 import StatsBar from "./components/StatsBar";
-import Toast from "./components/Toast";
 import { spots as initialSpots } from "./data/spots";
-
-const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
-
-type SortOption = "nearest" | "mostAvailable" | "leastAvailable";
-
-function getAvailabilityText(availability: number) {
-  if (availability >= 80) {
-    return "High chance of finding seating";
-  }
-
-  if (availability >= 50) {
-    return "Some seats are available";
-  }
-
-  if (availability >= 20) {
-    return "Limited seating available";
-  }
-
-  return "Very unlikely to find seating";
-}
-
-function formatRelativeTime(timestamp: Timestamp | null, currentTime: number) {
-  if (!timestamp) return "just now";
-
-  const diffMs = currentTime - timestamp.toMillis();
-  const diffMinutes = Math.floor(diffMs / 60000);
-
-  if (diffMinutes < 1) return "just now";
-  if (diffMinutes === 1) return "1 min ago";
-  if (diffMinutes < 60) return `${diffMinutes} min ago`;
-
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours === 1) return "1 hr ago";
-  if (diffHours < 24) return `${diffHours} hr ago`;
-
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) return "1 day ago";
-  return `${diffDays} days ago`;
-}
-
-function isSpotStale(timestamp: Timestamp | null, currentTime: number) {
-  if (!timestamp) return false;
-  return currentTime - timestamp.toMillis() > STALE_THRESHOLD_MS;
-}
-
-function parseDistance(distance: string) {
-  // "0.6 mi" -> 0.6
-  return parseFloat(distance) || 0;
-}
-
-async function uploadReportPhoto(spotId: string, file: File) {
-  const safeFileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "")}`;
-  const storagePath = `reports/${spotId}/${safeFileName}`;
-  const storageRef = ref(storage, storagePath);
-
-  await uploadBytes(storageRef, file);
-  const storageUrl = await getDownloadURL(storageRef);
-
-  await addDoc(collection(db, "photos"), {
-    spotId,
-    storageUrl,
-    storagePath,
-    uploadedAt: serverTimestamp(),
-  });
-}
+import {
+  getAvailabilityText,
+  getLabel,
+  getReportText,
+} from "./lib/availability";
+import type { Spot } from "./types/spot";
 
 export default function Home() {
+  const [spotList, setSpotList] = useState<Spot[]>(initialSpots);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [spotList, setSpotList] = useState<Spot[]>([]);
-  const [selectedSpot, setSelectedSpot] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  const [isLoading, setIsLoading] = useState(true);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
   const [sortBy, setSortBy] = useState<SortOption>("nearest");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const [now, setNow] = useState(0);
+  const [flashes, setFlashes] = useState<Record<string, number>>({});
+  const [feed, setFeed] = useState<FeedItem>({
+    id: 0,
+    when: "",
+    text: "Reports from students near UCR appear here as they come in.",
+  });
+  const [toast, setToast] = useState({
+    message: "",
+    open: false,
+    showLink: false,
+  });
 
-  const resultsRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef(spotList);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const promoShown = useRef(false);
+  const dismissed = useRef(false);
 
   useEffect(() => {
-    const spotsRef = collection(db, "spots");
+    listRef.current = spotList;
+  }, [spotList]);
 
-    async function seedIfEmpty() {
-      const snapshot = await getDocs(spotsRef);
+  /* ---------- pop-up card ---------- */
 
-      if (snapshot.empty) {
-        const batch = writeBatch(db);
+  const say = useCallback((message: string, showLink = false) => {
+    setToast({ message, open: true, showLink });
 
-        initialSpots.forEach((spot) => {
-          batch.set(doc(db, "spots", spot.id), {
-            ...spot,
-            reportCount: 1,
-            reportSum: spot.seatAvailability,
-            lastUpdatedAt: serverTimestamp(),
-          });
-        });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(
+      () => setToast((current) => ({ ...current, open: false })),
+      7000
+    );
+  }, []);
 
-        await batch.commit();
-      }
-    }
+  const closeToast = useCallback(() => {
+    dismissed.current = true;
+    setToast((current) => ({ ...current, open: false }));
+  }, []);
 
-    seedIfEmpty();
+  /* ---------- live updates ---------- */
 
-    const unsubscribe = onSnapshot(spotsRef, (snapshot) => {
-      const liveSpots = snapshot.docs.map(
-        (docSnap) => docSnap.data() as Spot
+  const flash = useCallback((id: string) => {
+    setFlashes((current) => ({ ...current, [id]: (current[id] ?? 0) + 1 }));
+  }, []);
+
+  const pushReport = useCallback(
+    (id: string, value: number, who: string) => {
+      const spot = listRef.current.find((item) => item.id === id);
+      if (!spot) return;
+
+      const timestamp = Date.now();
+
+      setSpotList((current) =>
+        current.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                seatAvailability: value,
+                availabilityText: getAvailabilityText(value),
+                updated: "just now",
+                updatedAt: timestamp,
+              }
+            : item
+        )
       );
 
-      setSpotList(liveSpots);
-
-      if (liveSpots.length > 0) {
-        setIsLoading(false);
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (!toastMessage) return;
-
-    const timeout = setTimeout(() => setToastMessage(null), 3000);
-    return () => clearTimeout(timeout);
-  }, [toastMessage]);
-
-  const filteredSpots = spotList.filter((spot) =>
-    spot.name.toLowerCase().includes(search.toLowerCase())
+      setNow(timestamp);
+      flash(id);
+      setFeed((current) => ({
+        id: current.id + 1,
+        when: "Just now",
+        text: `${who} reported ${getReportText(value)} at ${spot.name}`,
+      }));
+    },
+    [flash]
   );
 
-  const sortedSpots = useMemo(() => {
-    const spotsCopy = [...filteredSpots];
+  // First load: stamp update times, show the skeleton briefly, tick the clock.
+  useEffect(() => {
+    const start = Date.now();
+    setNow(start);
+    setSpotList((current) =>
+      current.map((spot) => ({
+        ...spot,
+        updatedAt: start - parseInt(spot.updated, 10) * 60000,
+      }))
+    );
 
-    switch (sortBy) {
-      case "mostAvailable":
-        return spotsCopy.sort(
+    const loadTimer = setTimeout(() => setLoading(false), 1100);
+    const clock = setInterval(() => setNow(Date.now()), 10000);
+
+    return () => {
+      clearTimeout(loadTimer);
+      clearInterval(clock);
+    };
+  }, []);
+
+  // Simulated reports from other students. Replace with Firestore listeners later.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const current = listRef.current;
+      const spot = current[Math.floor(Math.random() * current.length)];
+
+      let next =
+        spot.seatAvailability + Math.round((Math.random() - 0.5) * 28);
+      next = Math.max(4, Math.min(98, next));
+      if (next === spot.seatAvailability) {
+        next += next > 50 ? -3 : 3;
+      }
+
+      pushReport(spot.id, next, "A student");
+    }, 4500);
+
+    return () => clearInterval(timer);
+  }, [pushReport]);
+
+  // Pop-up card after the visitor scrolls past most of the first screen.
+  useEffect(() => {
+    function onScroll() {
+      if (promoShown.current || dismissed.current) return;
+
+      if (window.scrollY > window.innerHeight * 0.7) {
+        promoShown.current = true;
+
+        const best = [...listRef.current].sort(
           (a, b) => b.seatAvailability - a.seatAvailability
-        );
-      case "leastAvailable":
-        return spotsCopy.sort(
-          (a, b) => a.seatAvailability - b.seatAvailability
-        );
-      case "nearest":
-      default:
-        return spotsCopy.sort(
-          (a, b) => parseDistance(a.distance) - parseDistance(b.distance)
-        );
-    }
-  }, [filteredSpots, sortBy]);
+        )[0];
 
-  function scrollToResults() {
-    resultsRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }
-
-  async function handleAvailabilityReport(
-    availability: number,
-    photo: File | null
-  ) {
-    if (!selectedSpot) return;
-
-    const targetSpot = spotList.find((spot) => spot.name === selectedSpot);
-    if (!targetSpot) return;
-
-    const spotRef = doc(db, "spots", targetSpot.id);
-
-    await runTransaction(db, async (transaction) => {
-      const snapshot = await transaction.get(spotRef);
-      if (!snapshot.exists()) return;
-
-      const current = snapshot.data() as Spot;
-      const newReportCount = current.reportCount + 1;
-      const newReportSum = current.reportSum + availability;
-      const newAverage = Math.round(newReportSum / newReportCount);
-
-      transaction.update(spotRef, {
-        reportCount: newReportCount,
-        reportSum: newReportSum,
-        seatAvailability: newAverage,
-        availabilityText: getAvailabilityText(newAverage),
-        lastUpdatedAt: serverTimestamp(),
-      });
-    });
-
-    if (photo) {
-      try {
-        await uploadReportPhoto(targetSpot.id, photo);
-      } catch (error) {
-        console.error("Photo upload failed:", error);
-        setToastMessage(
-          `Thanks — ${targetSpot.name} updated! (Photo upload failed)`
-        );
-        setSelectedSpot(null);
-        return;
+        if (best) {
+          say(
+            `${best.seatAvailability}% of seats are open at ${best.name} right now.`,
+            true
+          );
+        }
       }
     }
 
-    setToastMessage(`Thanks — ${targetSpot.name} updated!`);
-    setSelectedSpot(null);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [say]);
+
+  /* ---------- search, filter, sort ---------- */
+
+  const visibleSpots = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    const matches = spotList.filter((spot) => {
+      if (!spot.name.toLowerCase().includes(query)) return false;
+      if (filter === "all") return true;
+      if (filter === "quiet") return spot.noise === "Quiet";
+      if (filter === "outlets") return spot.outlets === "Plenty";
+      return spot.type === filter;
+    });
+
+    return matches.sort((a, b) => {
+      if (sortBy === "mostAvailable") {
+        return b.seatAvailability - a.seatAvailability;
+      }
+      if (sortBy === "leastAvailable") {
+        return a.seatAvailability - b.seatAvailability;
+      }
+      return parseFloat(a.distance) - parseFloat(b.distance);
+    });
+  }, [spotList, search, filter, sortBy]);
+
+  const visibleIds = useMemo(
+    () => new Set(visibleSpots.map((spot) => spot.id)),
+    [visibleSpots]
+  );
+
+  const plentyCount = spotList.filter(
+    (spot) => spot.seatAvailability >= 75
+  ).length;
+
+  const selectedSpot = spotList.find((spot) => spot.id === selectedId);
+
+  /* ---------- actions ---------- */
+
+  function handleReport(value: number) {
+    if (!selectedId) return;
+
+    const spot = spotList.find((item) => item.id === selectedId);
+    pushReport(selectedId, value, "You");
+
+    if (spot) {
+      say(
+        `Thanks. ${spot.name} is now marked ${getLabel(value).toLowerCase()}.`
+      );
+    }
+
+    setSelectedId(null);
+  }
+
+  function toggleSave(spot: Spot) {
+    const alreadySaved = savedIds.has(spot.id);
+
+    setSavedIds((current) => {
+      const next = new Set(current);
+      if (alreadySaved) next.delete(spot.id);
+      else next.add(spot.id);
+      return next;
+    });
+
+    if (!alreadySaved) say(`${spot.name} saved to your spots.`);
+  }
+
+  function jumpToSpot(id: string) {
+    const go = () => {
+      const row = document.getElementById(`spot-${id}`);
+      if (row) {
+        row.scrollIntoView({ behavior: "smooth", block: "center" });
+        flash(id);
+      }
+    };
+
+    if (document.getElementById(`spot-${id}`)) {
+      go();
+    } else {
+      setSearch("");
+      setFilter("all");
+      setTimeout(go, 80);
+    }
+  }
+
+  function openNearestReport() {
+    const nearest = [...spotList].sort(
+      (a, b) => parseFloat(a.distance) - parseFloat(b.distance)
+    )[0];
+
+    if (nearest) setSelectedId(nearest.id);
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-black px-8 py-8 text-white">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,#3b0764_0%,#09090b_45%,#000_100%)]" />
+    <>
+      <Navbar />
 
-      <MapBackground />
+      <main id="top">
+        <Hero />
 
-      <section className="relative z-10 mx-auto max-w-7xl">
-        <Navbar />
+        <LiveTicker feed={feed} />
 
-        <Hero onExplore={scrollToResults} />
+        <div className="wrap">
+          <Categories spots={spotList} onPick={setFilter} />
 
-        <StatsBar spots={spotList} />
+          <CampusMap
+            spots={spotList}
+            visibleIds={visibleIds}
+            highlightId={hoverId}
+            onPick={jumpToSpot}
+          />
 
-        <SearchBar search={search} setSearch={setSearch} />
+          <section className="block" id="spots" aria-labelledby="open-heading">
+            <Reveal className="head">
+              <h2 id="open-heading">Open seats nearby</h2>
+              <SortMenu sortBy={sortBy} setSortBy={setSortBy} />
+            </Reveal>
 
-        <div ref={resultsRef} className="scroll-mt-8">
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-2xl font-bold tracking-tight">
-              Open Seats Nearby
-            </h2>
+            <SearchBar
+              search={search}
+              setSearch={setSearch}
+              filter={filter}
+              setFilter={setFilter}
+            />
 
-            <SortMenu sortBy={sortBy} setSortBy={setSortBy} />
-          </div>
+            <StatsBar total={spotList.length} plenty={plentyCount} />
 
-          {isLoading ? (
-            <div className="space-y-4">
-              <SpotCardSkeleton />
-              <SpotCardSkeleton />
-              <SpotCardSkeleton />
-            </div>
-          ) : (
-            <>
-              <div className="space-y-4">
-                {sortedSpots.map((spot) => (
+            <div id="list">
+              {loading &&
+                Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className="row sk">
+                    <div>
+                      <i style={{ width: "70%" }} />
+                      <i style={{ width: "40%" }} />
+                    </div>
+                    <div>
+                      <i style={{ width: "45%", height: 38 }} />
+                      <i style={{ height: 8 }} />
+                    </div>
+                    <div>
+                      <i style={{ width: "85%" }} />
+                    </div>
+                    <div>
+                      <i style={{ width: "60%", height: 38, marginLeft: "auto" }} />
+                    </div>
+                  </div>
+                ))}
+
+              {!loading && visibleSpots.length === 0 && (
+                <p className="empty">
+                  No spots match. Try another search or filter.
+                </p>
+              )}
+
+              {!loading &&
+                visibleSpots.map((spot, index) => (
                   <SpotCard
                     key={spot.id}
-                    {...spot}
-                    updated={formatRelativeTime(spot.lastUpdatedAt, now)}
-                    isStale={isSpotStale(spot.lastUpdatedAt, now)}
-                    onReport={() => setSelectedSpot(spot.name)}
+                    spot={spot}
+                    index={index}
+                    now={now}
+                    saved={savedIds.has(spot.id)}
+                    flash={flashes[spot.id] ?? 0}
+                    onReport={() => setSelectedId(spot.id)}
+                    onSave={() => toggleSave(spot)}
+                    onHover={setHoverId}
                   />
                 ))}
-              </div>
+            </div>
+          </section>
 
-              {sortedSpots.length === 0 && (
-                <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.06] p-8 text-zinc-300 backdrop-blur">
-                  No spots found. Try searching for another cafe or lounge.
-                </div>
-              )}
-            </>
-          )}
+          <HowItWorks />
         </div>
-      </section>
+
+        <CtaBand onReport={openNearestReport} />
+      </main>
 
       <Footer />
 
-      <Toast message={toastMessage} />
+      <Toast
+        message={toast.message}
+        open={toast.open}
+        showLink={toast.showLink}
+        onClose={closeToast}
+      />
 
       <ReportModal
-        spotName={selectedSpot ?? ""}
-        isOpen={selectedSpot !== null}
-        onClose={() => setSelectedSpot(null)}
-        onSubmit={handleAvailabilityReport}
+        spotName={selectedSpot?.name ?? ""}
+        isOpen={selectedId !== null}
+        onClose={() => setSelectedId(null)}
+        onSubmit={handleReport}
       />
-    </main>
+    </>
   );
 }
