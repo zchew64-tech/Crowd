@@ -13,7 +13,6 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
-import CampusMap from "./components/CampusMap";
 import Hero from "./components/Hero";
 import Navbar from "./components/Navbar";
 import ReportModal from "./components/ReportModal";
@@ -75,7 +74,6 @@ export default function Home() {
   const [sortBy, setSortBy] = useState<SortOption>("nearest");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
-  const [hoverId, setHoverId] = useState<string | null>(null);
   const [flashes, setFlashes] = useState<Record<string, number>>({});
   const [feed, setFeed] = useState<FeedItem>({
     id: 0,
@@ -270,11 +268,6 @@ export default function Home() {
     });
   }, [spotList, search, filter, sortBy]);
 
-  const visibleIds = useMemo(
-    () => new Set(visibleSpots.map((spot) => spot.id)),
-    [visibleSpots]
-  );
-
   const plentyCount = spotList.filter(
     (spot) => spot.seatAvailability >= 75
   ).length;
@@ -333,24 +326,6 @@ export default function Home() {
     if (!alreadySaved) say(`${spot.name} saved to your spots.`);
   }
 
-  function jumpToSpot(id: string) {
-    const go = () => {
-      const row = document.getElementById(`spot-${id}`);
-      if (row) {
-        row.scrollIntoView({ behavior: "smooth", block: "center" });
-        flash(id);
-      }
-    };
-
-    if (document.getElementById(`spot-${id}`)) {
-      go();
-    } else {
-      setSearch("");
-      setFilter("all");
-      setTimeout(go, 80);
-    }
-  }
-
   function openNearestReport() {
     const nearest = [...spotList].sort(
       (a, b) => parseFloat(a.distance) - parseFloat(b.distance)
@@ -370,13 +345,6 @@ export default function Home() {
 
         <div className="wrap">
           <Categories spots={spotList} onPick={setFilter} />
-
-          <CampusMap
-            spots={spotList}
-            visibleIds={visibleIds}
-            highlightId={hoverId}
-            onPick={jumpToSpot}
-          />
 
           <section className="block" id="spots" aria-labelledby="open-heading">
             <Reveal className="head">
@@ -430,7 +398,6 @@ export default function Home() {
                     flash={flashes[spot.id] ?? 0}
                     onReport={() => setSelectedId(spot.id)}
                     onSave={() => toggleSave(spot)}
-                    onHover={setHoverId}
                   />
                 ))}
             </div>

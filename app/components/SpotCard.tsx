@@ -13,7 +13,6 @@ type SpotCardProps = {
   flash: number;
   onReport: () => void;
   onSave: () => void;
-  onHover: (id: string | null) => void;
 };
 
 function useCountUp(value: number, active: boolean) {
@@ -60,7 +59,6 @@ export default function SpotCard({
   flash,
   onReport,
   onSave,
-  onHover,
 }: SpotCardProps) {
   const [ref, shown] = useReveal<HTMLElement>();
   const [flashing, setFlashing] = useState(false);
@@ -83,8 +81,6 @@ export default function SpotCard({
       id={`spot-${spot.id}`}
       className={`row rv ${shown ? "in" : ""} ${flashing ? "fl" : ""}`}
       style={{ "--d": `${index * 70}ms` } as CSSProperties}
-      onMouseEnter={() => onHover(spot.id)}
-      onMouseLeave={() => onHover(null)}
     >
       <div>
         <h3>{spot.name}</h3>
