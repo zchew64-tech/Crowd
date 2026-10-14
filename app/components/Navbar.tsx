@@ -1,28 +1,98 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
 export default function Navbar() {
+  const progress = useRef<HTMLDivElement | null>(null);
+  const [stuck, setStuck] = useState(false);
+
+  useEffect(() => {
+    let ticking = false;
+
+    function update() {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      const y = window.scrollY;
+
+      if (progress.current) {
+        progress.current.style.transform = `scaleX(${max > 0 ? y / max : 0})`;
+      }
+
+      setStuck(y > 10);
+      ticking = false;
+    }
+
+    function onScroll() {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(update);
+      }
+    }
+
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  function toggleTheme() {
+    const root = document.documentElement;
+    root.dataset.theme = root.dataset.theme === "light" ? "dark" : "light";
+  }
+
   return (
-    <nav className="mb-16 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 shadow-lg shadow-purple-900/20 backdrop-blur">
-          <span className="bg-gradient-to-br from-purple-300 to-purple-700 bg-clip-text text-xl font-black text-transparent">
-            C
-          </span>
-        </div>
+    <>
+      <div ref={progress} className="prog" aria-hidden="true" />
 
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">crowd</h1>
-          <p className="text-xs text-zinc-500">Study spaces near UCR</p>
-        </div>
+      <div className="wrap util">
+        <a href="#spots">Find a spot</a>
+        <a href="#how">Support</a>
+        <a href="#top">For business ↗</a>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm text-zinc-200 shadow-lg shadow-black/20 backdrop-blur transition hover:border-purple-400/40 hover:bg-purple-500/10">
-          UCR Area
-        </button>
+      <div className={`navbar ${stuck ? "s" : ""}`}>
+        <div className="wrap">
+          <nav aria-label="Main">
+            <a className="logo" href="#top">
+              CROWD
+            </a>
 
-        <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm font-bold text-purple-300 shadow-lg shadow-black/20 backdrop-blur">
-          ZC
+            <div className="links">
+              <a href="#spots">All spots</a>
+              <a href="#cat">Cafés</a>
+              <a href="#cat">Lounges</a>
+              <a href="#cat">Libraries</a>
+              <a href="#how">How it works</a>
+            </div>
+
+            <div className="icons">
+              <button
+                className="tg"
+                onClick={toggleTheme}
+                aria-label="Switch between light and dark theme"
+              >
+                <svg viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="8" />
+                  <path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" />
+                </svg>
+              </button>
+
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="M20 20l-4-4" />
+              </svg>
+
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z" />
+                <circle cx="12" cy="9.5" r="2.5" />
+              </svg>
+
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 21c1-4.5 4-6.5 8-6.5s7 2 8 6.5" />
+              </svg>
+            </div>
+          </nav>
         </div>
       </div>
-    </nav>
+    </>
   );
 }
